@@ -7,7 +7,6 @@ import (
 
 func TestLoadTasks(t *testing.T) {
 	t.Run("File exists with data", func(t *testing.T) {
-		// Setup: Ensure tasks.json exists with data
 		store := TaskStore{Tasks: []Task{{ID: 1, Description: "Test task", Done: false}}}
 		if err := SaveTasks(store); err != nil {
 			t.Fatalf("Setup failed: %v", err)
@@ -26,7 +25,6 @@ func TestLoadTasks(t *testing.T) {
 	})
 
 	t.Run("File exists but empty", func(t *testing.T) {
-		// Setup: Create empty tasks.json
 		if err := os.WriteFile(taskFile, []byte{}, 0644); err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -41,7 +39,6 @@ func TestLoadTasks(t *testing.T) {
 	})
 
 	t.Run("File does not exist", func(t *testing.T) {
-		// Setup: Remove tasks.json
 		os.Remove(taskFile)
 
 		loaded, err := LoadTasks()

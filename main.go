@@ -109,8 +109,8 @@ func main() {
 	case "add":
 		currentTask := AddTask(commands, store)
 		fmt.Printf("Adding a task: %v", currentTask)
-
-	// TODO: List
+	case "list":
+		ListTasks(commands, store)
 	// TODO: Done
 	// TODO: Delete
 	default:
@@ -149,4 +149,26 @@ func AddTask(commands *Commands, store TaskStore) Task {
 
 	// return task to ensure it was created properly for debug purposes
 	return store.Tasks[newID-1]
+}
+
+// list all tasks:
+func ListTasks(commands *Commands, store TaskStore) []Task {
+	commands.List.Parse(os.Args[2:])
+	var stateOfTasks []Task
+
+	if len(store.Tasks) == 0 {
+		fmt.Println("No tasks yet")
+		os.Exit(1) // changing into loop so instead, exit is temporary for now
+	}
+
+	for _, task := range store.Tasks {
+		var status string
+		if task.Done {
+			status += "X"
+		}
+		stateOfTasks = append(stateOfTasks, task)
+		fmt.Printf("[%s] %d: %s\n", status, task.ID, task.Description)
+	}
+
+	return stateOfTasks
 }

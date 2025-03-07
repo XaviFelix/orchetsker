@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,57 +14,76 @@ type Task struct {
 	Done        bool   `json:"done"`
 }
 
-// using a basic array for now
-type TaskStore struct {
-	Tasks []Task
+type TaskEntry struct {
+	Task  Task
+	Value *list.Element
+}
+
+// Changed to Map
+type TaskStorage struct {
+	Tasks map[int]*TaskEntry
+	Order *list.List
+}
+
+func NewTaskStorage() *TaskStorage {
+	return &TaskStorage{
+		Tasks: make(map[int]*TaskEntry),
+		Order: list.New(),
+	}
 }
 
 const taskFile = "tasks.json"
 
 // Pass a filename
-func LoadTasks() (TaskStore, error) {
-	store := TaskStore{}
-
-	// check if file exists
-	if _, err := os.Stat(taskFile); os.IsNotExist(err) {
-		return store, nil
-	}
-
-	// open file
+func LoadTasks() (*TaskStorage, error) {
+	store := NewTaskStorage()
 	file, err := os.Open(taskFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return store, nil
+		}
 		return store, fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
 
-	// Check if file is empty
-	stat, err := file.Stat()
+	raw, err := os.ReadFile(taskFile)
 	if err != nil {
-		return store, fmt.Errorf("checking file stat: $%w", err)
+		return store, fmt.Errorf("reading file: %w", err)
 	}
-	if stat.Size() == 0 {
+	if len(raw) == 0 {
 		return store, nil
 	}
+	fmt.Printf("Debug: tasks.json content: %s\n", raw)
 
-	// Everything works out, but checking if something went wrong with decoding
-	err = json.NewDecoder(file).Decode(&store)
-	if err != nil {
-		return store, fmt.Errorf("decoding JSON: %w", err)
+	var tasks []Task
+	if err := json.Unmarshal(raw, &tasks); err != nil {
+		return store, fmt.Errorf("decoding JSON: %w (content: %s)", err, raw)
+	}
+
+	// Populate map and list
+	for _, task := range tasks {
+		entry := &TaskEntry{Task: task}
+		entry.Value = store.Order.PushBack(entry)
+		store.Tasks[task.ID] = entry
 	}
 	return store, nil
 }
 
-func SaveTasks(store TaskStore) error {
+func SaveTasks(store *TaskStorage) error {
 	file, err := os.Create(taskFile)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
 	}
 	defer file.Close()
 
+	tasks := make([]Task, 0, store.Order.Len())
+	for e := store.Order.Front(); e != nil; e = e.Next() {
+		tasks = append(tasks, e.Value.(*TaskEntry).Task)
+	}
+
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", " ")
-
-	return encoder.Encode(store)
+	return encoder.Encode(tasks)
 }
 
 type Commands struct {
@@ -84,7 +104,7 @@ func NewCommands() *Commands {
 		DeleteCmd: flag.NewFlagSet("delete", flag.ExitOnError),
 	}
 	c.DoneID = c.Done.Int("id", 0, "ID of task to mark done")
-	c.DeleteID = c.DeleteCmd.Int("id", 0, "ID of taks to delete")
+	c.DeleteID = c.DeleteCmd.Int("id", 0, "ID of task to delete")
 
 	return c
 }
@@ -110,19 +130,20 @@ func main() {
 		currentTask := AddTask(commands, store)
 		fmt.Printf("Adding a task: %v", currentTask)
 	case "list":
-		ListTasks(commands, store)
+		// ListTasks(commands, store)
+		fmt.Println("Still need to list tasks here")
 	// TODO: Done
 	// TODO: Delete
 	default:
 		fmt.Println("Unknown command: ", os.Args[1])
-		fmt.Println("Usage: <command> [task description]")
+		fmt.Println("Usage: task <command> [args]")
 		fmt.Println("Available Commands: add, list, done, delete")
 		os.Exit(1)
 	}
 }
 
 // Adds a task to the json file
-func AddTask(commands *Commands, store TaskStore) Task {
+func AddTask(commands *Commands, store *TaskStorage) Task {
 
 	// parse the description of the passed argument, located from args[2:]
 	commands.Add.Parse(os.Args[2:])
@@ -135,40 +156,42 @@ func AddTask(commands *Commands, store TaskStore) Task {
 	description := commands.Add.Arg(0)
 
 	// create a new id number based on array length
-	newID := len(store.Tasks) + 1
+	newID := len(store.Tasks) + 1 // Fix this
 
 	// append a new instance of a Task to the list of tasks
-	store.Tasks = append(store.Tasks, Task{
-		ID:          newID,
-		Description: description,
-		Done:        false,
-	})
+	entry := &TaskEntry{Task: Task{ID: newID, Description: description, Done: false}}
+	entry.Value = store.Order.PushBack(entry)
+	store.Tasks[newID] = entry
+
 	fmt.Printf("Added task %d: %s\n", newID, description)
 	// Save the task to json file
-	SaveTasks(store)
+	if err := SaveTasks(store); err != nil {
+		fmt.Println("Error saving tasks: ", err)
+		os.Exit(1)
+	}
 
 	// return task to ensure it was created properly for debug purposes
-	return store.Tasks[newID-1]
+	return store.Tasks[newID].Task
 }
 
 // list all tasks:
-func ListTasks(commands *Commands, store TaskStore) []Task {
-	commands.List.Parse(os.Args[2:])
-	var stateOfTasks []Task
+// func ListTasks(commands *Commands, store *TaskStorage) []Task {
+// 	commands.List.Parse(os.Args[2:])
+// 	var stateOfTasks []Task
 
-	if len(store.Tasks) == 0 {
-		fmt.Println("No tasks yet")
-		os.Exit(1) // changing into loop so instead, exit is temporary for now
-	}
+// 	if len(store.Tasks) == 0 {
+// 		fmt.Println("No tasks yet")
+// 		os.Exit(1) // changing into loop so instead, exit is temporary for now
+// 	}
 
-	for _, task := range store.Tasks {
-		var status string
-		if task.Done {
-			status += "X"
-		}
-		stateOfTasks = append(stateOfTasks, task)
-		fmt.Printf("[%s] %d: %s\n", status, task.ID, task.Description)
-	}
+// 	for _, task := range store.Tasks {
+// 		var status string
+// 		if task.Done {
+// 			status += "X"
+// 		}
+// 		stateOfTasks = append(stateOfTasks, task)
+// 		fmt.Printf("[%s] %d: %s\n", status, task.ID, task.Description)
+// 	}
 
-	return stateOfTasks
-}
+// 	return stateOfTasks
+// }

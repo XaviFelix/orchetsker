@@ -1,10 +1,13 @@
 package main
 
+// TODO: create a flag for running in a loop or as one commmand
+
 import (
 	"container/list"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -14,18 +17,20 @@ type Task struct {
 	Done        bool   `json:"done"`
 }
 
+// Maintains order
 type TaskEntry struct {
 	Task  Task
 	Value *list.Element
 }
 
-// Changed to Map
+// LinkedMap
 type TaskStorage struct {
 	Tasks map[int]*TaskEntry
 	Order *list.List
 }
 
-func NewTaskStorage() *TaskStorage {
+// initalizes the linkedmap
+func newTaskStorage() *TaskStorage {
 	return &TaskStorage{
 		Tasks: make(map[int]*TaskEntry),
 		Order: list.New(),
@@ -34,9 +39,8 @@ func NewTaskStorage() *TaskStorage {
 
 const taskFile = "tasks.json"
 
-// Pass a filename
 func LoadTasks() (*TaskStorage, error) {
-	store := NewTaskStorage()
+	store := newTaskStorage()
 	file, err := os.Open(taskFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -46,21 +50,15 @@ func LoadTasks() (*TaskStorage, error) {
 	}
 	defer file.Close()
 
-	raw, err := os.ReadFile(taskFile)
-	if err != nil {
-		return store, fmt.Errorf("reading file: %w", err)
-	}
-	if len(raw) == 0 {
-		return store, nil
-	}
-	fmt.Printf("Debug: tasks.json content: %s\n", raw)
-
+	// load tasks from json into a slice
 	var tasks []Task
-	if err := json.Unmarshal(raw, &tasks); err != nil {
-		return store, fmt.Errorf("decoding JSON: %w (content: %s)", err, raw)
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&tasks)
+	if err != nil {
+		log.Fatalf("Error decoding json: %v", err)
 	}
 
-	// Populate map and list
+	// use the slice to add entries to the linked map (store)
 	for _, task := range tasks {
 		entry := &TaskEntry{Task: task}
 		entry.Value = store.Order.PushBack(entry)
@@ -69,10 +67,10 @@ func LoadTasks() (*TaskStorage, error) {
 	return store, nil
 }
 
-func SaveTasks(store *TaskStorage) error {
-	file, err := os.Create(taskFile)
+func SaveTask(store *TaskStorage) error {
+	file, err := os.OpenFile("tasks.json", os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create task: %w", err)
+		log.Fatal(err)
 	}
 	defer file.Close()
 
@@ -127,11 +125,9 @@ func main() {
 
 	switch os.Args[1] {
 	case "add":
-		currentTask := AddTask(commands, store)
-		fmt.Printf("Adding a task: %v", currentTask)
+		AddTask(commands, store)
 	case "list":
-		// ListTasks(commands, store)
-		fmt.Println("Still need to list tasks here")
+		ListTasks(commands, store)
 	// TODO: Done
 	// TODO: Delete
 	default:
@@ -165,7 +161,7 @@ func AddTask(commands *Commands, store *TaskStorage) Task {
 
 	fmt.Printf("Added task %d: %s\n", newID, description)
 	// Save the task to json file
-	if err := SaveTasks(store); err != nil {
+	if err := SaveTask(store); err != nil {
 		fmt.Println("Error saving tasks: ", err)
 		os.Exit(1)
 	}
@@ -175,23 +171,37 @@ func AddTask(commands *Commands, store *TaskStorage) Task {
 }
 
 // list all tasks:
-// func ListTasks(commands *Commands, store *TaskStorage) []Task {
-// 	commands.List.Parse(os.Args[2:])
-// 	var stateOfTasks []Task
+func ListTasks(commands *Commands, store *TaskStorage) []Task {
+	commands.List.Parse(os.Args[2:])
+	// var stateOfTasks []Task
 
-// 	if len(store.Tasks) == 0 {
-// 		fmt.Println("No tasks yet")
-// 		os.Exit(1) // changing into loop so instead, exit is temporary for now
-// 	}
+	if len(store.Tasks) == 0 {
+		fmt.Println("No tasks yet")
+		os.Exit(1) // changing into loop so instead, exit is temporary for now
+	}
 
-// 	for _, task := range store.Tasks {
-// 		var status string
-// 		if task.Done {
-// 			status += "X"
-// 		}
-// 		stateOfTasks = append(stateOfTasks, task)
-// 		fmt.Printf("[%s] %d: %s\n", status, task.ID, task.Description)
-// 	}
+	// Ordered
+	tasks := make([]Task, 0, store.Order.Len())
+	for e := store.Order.Front(); e != nil; e = e.Next() {
+		var status string
+		if e.Value.(*TaskEntry).Task.Done {
+			status += "X"
+		}
+		tasks = append(tasks, e.Value.(*TaskEntry).Task)
+		fmt.Printf("[%s] %d: %s\n",
+			status, e.Value.(*TaskEntry).Task.ID,
+			e.Value.(*TaskEntry).Task.Description)
+	}
 
-// 	return stateOfTasks
-// }
+	// Unordered
+	// for _, entry := range store.Tasks {
+	// 	var status string
+	// 	if entry.Task.Done {
+	// 		status += "X"
+	// 	}
+	// 	stateOfTasks = append(stateOfTasks, entry.Task)
+	// 	fmt.Printf("[%s] %d: %s\n", status, entry.Task.ID, entry.Task.Description)
+	// }
+
+	return tasks
+}

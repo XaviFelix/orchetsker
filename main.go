@@ -1,6 +1,9 @@
 package main
 
 // TODO: create a flag for running in a loop or as one commmand
+// TODO: instead use jsonl file to make appending more efficient
+// TODO: change the visibility of all of these methods
+// TODO: finish the delete command
 
 import (
 	"container/list"
@@ -9,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 )
 
 type Task struct {
@@ -39,6 +43,7 @@ func newTaskStorage() *TaskStorage {
 
 const taskFile = "tasks.json"
 
+// TODO: Converting to jsonl soon, refactor this code
 func LoadTasks() (*TaskStorage, error) {
 	store := newTaskStorage()
 	file, err := os.Open(taskFile)
@@ -67,18 +72,25 @@ func LoadTasks() (*TaskStorage, error) {
 	return store, nil
 }
 
+// TODO: THis needs to save one task to json
+// changing to jsonl soon, refactor this code
+// add another argument here: task Task
 func SaveTask(store *TaskStorage) error {
+	// need append flag on thish line of code: os.O_APPEND
 	file, err := os.OpenFile("tasks.json", os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
 
+	// TODO: Need to get rid of this since i am not loading
+	// everything into memeory anymore
 	tasks := make([]Task, 0, store.Order.Len())
 	for e := store.Order.Front(); e != nil; e = e.Next() {
 		tasks = append(tasks, e.Value.(*TaskEntry).Task)
 	}
 
+	// TODO: modify these lines of code so that it encodes only one task
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", " ")
 	return encoder.Encode(tasks)
@@ -129,6 +141,9 @@ func main() {
 	case "list":
 		ListTasks(commands, store)
 	// TODO: Done
+	case "done":
+		setDone(commands, store)
+
 	// TODO: Delete
 	default:
 		fmt.Println("Unknown command: ", os.Args[1])
@@ -204,4 +219,24 @@ func ListTasks(commands *Commands, store *TaskStorage) []Task {
 	// }
 
 	return tasks
+}
+
+// converting from json to csv will make appending easier
+func setDone(commands *Commands, store *TaskStorage) {
+	commands.Done.Parse(os.Args[2:])
+
+	if len(store.Tasks) == 0 {
+		fmt.Println("No tasks yet")
+		os.Exit(1) // changing into loop so instead, exit is temporary for now
+	}
+
+	taskId, err := strconv.Atoi(commands.Done.Arg(0))
+	if err != nil {
+		log.Fatalf("Something went wrong converting taskID: %v", err)
+	}
+
+	currentTask := store.Tasks[taskId]
+	currentTask.Task.Done = true
+	SaveTask(store) // pass the curretTask to this method
+	ListTasks(commands, store)
 }

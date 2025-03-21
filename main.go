@@ -1,15 +1,22 @@
 package main
 
 // TODO: create a flag for running in a loop or as one commmand
-// TODO: instead use jsonl file to make appending more efficient
 // TODO: change the visibility of all of these methods
+// TODO: Fix the duplicate task on 'done' bug, the problem lies in the SaveTask method
+
 // TODO: finish the delete command
+
+// TODO: Add a done date
+//		 Then add a check in loadTasks.
+//		 If a task that is done exceeds 10 days
+// 		 delete it from the jsonl
 
 import (
 	"container/list"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -41,7 +48,7 @@ func newTaskStorage() *TaskStorage {
 	}
 }
 
-const taskFile = "tasks.json"
+const taskFile = "tasks.jsonl"
 
 // TODO: Converting to jsonl soon, refactor this code
 func LoadTasks() (*TaskStorage, error) {
@@ -55,19 +62,20 @@ func LoadTasks() (*TaskStorage, error) {
 	}
 	defer file.Close()
 
-	// load tasks from json into a slice
-	var tasks []Task
+	// var tasks []Task
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&tasks)
-	if err != nil {
-		log.Fatalf("Error decoding json: %v", err)
-	}
-
-	// use the slice to add entries to the linked map (store)
-	for _, task := range tasks {
+	for {
+		var task Task
+		if err := decoder.Decode(&task); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
 		entry := &TaskEntry{Task: task}
 		entry.Value = store.Order.PushBack(entry)
 		store.Tasks[task.ID] = entry
+		// tasks = append(tasks, task)
 	}
 	return store, nil
 }
@@ -75,33 +83,29 @@ func LoadTasks() (*TaskStorage, error) {
 // TODO: THis needs to save one task to json
 // changing to jsonl soon, refactor this code
 // add another argument here: task Task
-func SaveTask(store *TaskStorage) error {
-	// need append flag on thish line of code: os.O_APPEND
-	file, err := os.OpenFile("tasks.json", os.O_CREATE|os.O_WRONLY, 0644)
+func SaveTask(store *TaskStorage, task Task) error {
+	file, err := os.OpenFile(taskFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
 
-	// TODO: Need to get rid of this since i am not loading
-	// everything into memeory anymore
-	tasks := make([]Task, 0, store.Order.Len())
-	for e := store.Order.Front(); e != nil; e = e.Next() {
-		tasks = append(tasks, e.Value.(*TaskEntry).Task)
-	}
+	// TODO: add the code for single addtion of a task
+	encoder := json.NewEncoder(file)
+	return encoder.Encode(task)
 
 	// TODO: modify these lines of code so that it encodes only one task
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", " ")
-	return encoder.Encode(tasks)
+	// encoder := json.NewEncoder(file)
+	// encoder.SetIndent("", " ")
+	// return encoder.Encode(tasks)
 }
 
 type Commands struct {
 	Add       *flag.FlagSet
 	List      *flag.FlagSet
 	Done      *flag.FlagSet
-	DoneID    *int
-	DeleteCmd *flag.FlagSet
+	DoneID    *int          // Use this to create a separate jsonl of done tasks
+	DeleteCmd *flag.FlagSet // Use this to create a spearate jsonl of deleted tasks
 	DeleteID  *int
 }
 
@@ -140,11 +144,11 @@ func main() {
 		AddTask(commands, store)
 	case "list":
 		ListTasks(commands, store)
-	// TODO: Done
 	case "done":
 		setDone(commands, store)
-
 	// TODO: Delete
+	// case "delete":
+	// 	deleteTask(commands, store)
 	default:
 		fmt.Println("Unknown command: ", os.Args[1])
 		fmt.Println("Usage: task <command> [args]")
@@ -176,12 +180,13 @@ func AddTask(commands *Commands, store *TaskStorage) Task {
 
 	fmt.Printf("Added task %d: %s\n", newID, description)
 	// Save the task to json file
-	if err := SaveTask(store); err != nil {
+	if err := SaveTask(store, entry.Task); err != nil {
 		fmt.Println("Error saving tasks: ", err)
 		os.Exit(1)
 	}
 
 	// return task to ensure it was created properly for debug purposes
+	// TODO: return an error instead
 	return store.Tasks[newID].Task
 }
 
@@ -221,14 +226,17 @@ func ListTasks(commands *Commands, store *TaskStorage) []Task {
 	return tasks
 }
 
-// converting from json to csv will make appending easier
+// TODO: This saves a copy of a task that was set to done.
+// NOTE: that means there is a duplicate: the original (not done) task
+//
+//	and the copy (is done)
 func setDone(commands *Commands, store *TaskStorage) {
-	commands.Done.Parse(os.Args[2:])
-
 	if len(store.Tasks) == 0 {
 		fmt.Println("No tasks yet")
 		os.Exit(1) // changing into loop so instead, exit is temporary for now
 	}
+
+	commands.Done.Parse(os.Args[2:])
 
 	taskId, err := strconv.Atoi(commands.Done.Arg(0))
 	if err != nil {
@@ -237,6 +245,30 @@ func setDone(commands *Commands, store *TaskStorage) {
 
 	currentTask := store.Tasks[taskId]
 	currentTask.Task.Done = true
-	SaveTask(store) // pass the curretTask to this method
+
+	// TODO: Fix this
+	// So what this does is that it creates a new
+	// task on the jsonl file instead of updating it
+	err = SaveTask(store, currentTask.Task) // pass the curretTask to this method
+	if err != nil {
+		log.Fatal("error saving current task: ", err)
+	}
 	ListTasks(commands, store)
 }
+
+// func deleteTask(commands *Commands, store *TaskStorage) {
+// 	if len(store.Tasks) == 0 {
+// 		fmt.Println("No taks yet")
+// 		os.Exit(1)
+// 	}
+
+// 	commands.DeleteCmd.Parse(os.Args[2:])
+// 	taskId, err := strconv.Atoi(commands.DeleteCmd.Arg(0))
+// 	if err != nil {
+// 		log.Fatalf("Something went wrong converting taskID: %v", err)
+// 	}
+
+// 	// This is deleted from the map but is not delted from the json file
+// 	delete(store.Tasks, taskId)
+
+// }

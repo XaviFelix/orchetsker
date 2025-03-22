@@ -3,6 +3,7 @@ package main
 // TODO: create a flag for running in a loop or as one commmand
 // TODO: change the visibility of all of these methods
 // TODO: Fix the duplicate task on 'done' bug, the problem lies in the SaveTask method
+// TODO: Change the way i keep track of jsonl elements using an offset buffer
 
 // TODO: finish the delete command
 
@@ -90,7 +91,6 @@ func SaveTask(store *TaskStorage, task Task) error {
 	}
 	defer file.Close()
 
-	// TODO: add the code for single addtion of a task
 	encoder := json.NewEncoder(file)
 	return encoder.Encode(task)
 
@@ -147,8 +147,8 @@ func main() {
 	case "done":
 		setDone(commands, store)
 	// TODO: Delete
-	// case "delete":
-	// 	deleteTask(commands, store)
+	case "delete":
+		deleteTask(commands, store)
 	default:
 		fmt.Println("Unknown command: ", os.Args[1])
 		fmt.Println("Usage: task <command> [args]")
@@ -156,6 +156,25 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// This needs to delete from a json file
+// NOTE: Figure out how to delete an entry in a jsonl file
+// func deleteTask(commands *Commands, store *TaskStorage) {
+// 	commands.DeleteCmd.Parse(os.Args[2:])
+// 	if len(commands.DeleteCmd.Args()) == 0 {
+// 		fmt.Println("Error: Provide a task id")
+// 		os.Exit(1)
+// 	}
+
+// 	taskId, err := strconv.Atoi(commands.Done.Arg(0))
+// 	if err != nil {
+// 		log.Fatalf("Something went wrong converting taskID: %v", err)
+// 	}
+
+// 	// use the task id in order to find the element in the
+// 	// store and in the jsonl
+
+// }
 
 // Adds a task to the json file
 func AddTask(commands *Commands, store *TaskStorage) Task {
